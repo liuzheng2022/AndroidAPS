@@ -1,5 +1,6 @@
 package app.aaps.plugins.aps.openAPSSMB
 
+import app.aaps.core.data.configuration.Constants
 import app.aaps.core.interfaces.aps.APSResult
 import app.aaps.core.interfaces.aps.AutosensResult
 import app.aaps.core.interfaces.aps.CurrentTemp
@@ -67,7 +68,7 @@ class DetermineBasalSMB @Inject constructor(
         if (!microBolusAllowed) {
             consoleError.add("SMB disabled (!microBolusAllowed)")
             return false
-        } else if (!profile.allowSMB_with_high_temptarget && profile.temptargetSet && target_bg > 100) {
+        } else if (!profile.allowSMB_with_high_temptarget && profile.temptargetSet && target_bg > Constants.ALLOW_SMB_WITH_HIGH_TT) {
             consoleError.add("SMB disabled due to high temptarget of $target_bg")
             return false
         }
@@ -471,6 +472,9 @@ class DetermineBasalSMB @Inject constructor(
         // area of the /\ triangle is the same as a remainingCIpeak-height rectangle out to remainingCATime/2
         // remainingCIpeak (mg/dL/5m) = remainingCarbs (g) * CSF (mg/dL/g) * 5 (m/5m) * 1h/60m / (remainingCATime/2) (h)
         val remainingCIpeak = remainingCarbs * csf * 5 / 60 / (remainingCATime / 2)
+        if (remainingCIpeak.isNaN()) {
+            throw Exception("remainingCarbs=$remainingCarbs remainingCATime=$remainingCATime profile.remainingCarbsCap=${profile.remainingCarbsCap} csf=$csf")
+        }
         //console.error(profile.min_5m_carbimpact,ci,totalCI,totalCA,remainingCarbs,remainingCI,remainingCATime);
 
         // calculate peak deviation in last hour, and slope from that to current deviation
@@ -553,6 +557,9 @@ class DetermineBasalSMB @Inject constructor(
             // and ending at remainingCATime h (remainingCATime*12 * 5m intervals)
             val intervals = Math.min(COBpredBGs.size.toDouble(), ((remainingCATime * 12) - COBpredBGs.size))
             val remainingCI = Math.max(0.0, intervals / (remainingCATime / 2 * 12) * remainingCIpeak)
+            if (remainingCI.isNaN()) {
+                throw Exception("remainingCI=$remainingCI intervals=$intervals remainingCIpeak=$remainingCIpeak")
+            }
             remainingCItotal += predCI + remainingCI
             remainingCIs.add(round(remainingCI))
             predCIs.add(round(predCI))
@@ -873,7 +880,7 @@ class DetermineBasalSMB @Inject constructor(
             rT.reason.append(" and minDelta ${convert_bg(minDelta)} > expectedDelta ${convert_bg(expectedDelta)}; ")
             // predictive low glucose suspend mode: BG is / is projected to be < threshold
         } else if (bg < threshold || minGuardBG < threshold) {
-            rT.reason.append("minGuardBG " + convert_bg(minGuardBG) + "<" + convert_bg(threshold))
+            rT.reason.append("minGuardBG ${convert_bg(minGuardBG)} < ${convert_bg(threshold)}")
             bgUndershoot = target_bg - minGuardBG
             val worstCaseInsulinReq = bgUndershoot / sens
             var durationReq = round(60 * worstCaseInsulinReq / profile.current_basal)
